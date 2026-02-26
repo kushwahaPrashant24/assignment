@@ -65,12 +65,8 @@ export const deposit = async (req: Request, res: Response): Promise<void> => {
 
         res.status(200).json({
             success: true,
-            message: `Deposited ₹${amount} successfully.`,
-            data: {
-                accountNo: account.accountNo,
-                holderName: account.holderName,
-                balance: account.balance,
-            },
+            message: `Deposited successfully.`,
+            data: { accountNo: account.accountNo, holderName: account.holderName, balance: account.balance },
         });
     } catch (error) {
         console.error("deposit error:", error);
@@ -97,11 +93,10 @@ export const withdraw = async (req: Request, res: Response): Promise<void> => {
             res.status(404).json({ success: false, message: `Account '${accountNo}' not found.` });
             return;
         }
-
         if (account.balance < amount) {
             res.status(400).json({
                 success: false,
-                message: `Insufficient balance. Available: ₹${account.balance}, Requested: ₹${amount}.`,
+                message: `Insufficient balance. Available: ${account.balance}, Requested: ${amount}.`,
             });
             return;
         }
@@ -111,15 +106,100 @@ export const withdraw = async (req: Request, res: Response): Promise<void> => {
 
         res.status(200).json({
             success: true,
-            message: `Withdrew ₹${amount} successfully.`,
-            data: {
-                accountNo: account.accountNo,
-                holderName: account.holderName,
-                balance: account.balance,
-            },
+            message: `Withdrawn successfully.`,
+            data: { accountNo: account.accountNo, holderName: account.holderName, balance: account.balance },
         });
     } catch (error) {
         console.error("withdraw error:", error);
+        res.status(500).json({ success: false, message: "Internal server error." });
+    }
+};
+
+// ── POST /api/accounts/transfer ───────────────────────────────────────────────
+export const transfer = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { senderAccount, receiverAccount, amount } = req.body;
+
+        // --- Field presence validation ---
+        if (!senderAccount || typeof senderAccount !== "string" || senderAccount.trim() === "") {
+            res.status(400).json({ success: false, message: "senderAccount is required." });
+            return;
+        }
+        if (!receiverAccount || typeof receiverAccount !== "string" || receiverAccount.trim() === "") {
+            res.status(400).json({ success: false, message: "receiverAccount is required." });
+            return;
+        }
+        if (typeof amount !== "number" || isNaN(amount) || amount <= 0) {
+            res.status(400).json({ success: false, message: "amount must be a positive number." });
+            return;
+        }
+
+        const senderNo = senderAccount.trim();
+        const receiverNo = receiverAccount.trim();
+
+        // --- Prevent self-transfer ---
+        if (senderNo.toLowerCase() === receiverNo.toLowerCase()) {
+            res.status(400).json({ success: false, message: "Sender and receiver accounts must be different." });
+            return;
+        }
+
+        // --- Fetch both accounts ---
+        const [sender, receiver] = await Promise.all([
+            Account.findOne({ accountNo: senderNo }),
+            Account.findOne({ accountNo: receiverNo }),
+        ]);
+
+        if (!sender) {
+            res.status(404).json({ success: false, message: `Sender account '${senderNo}' not found.` });
+            return;
+        }
+        if (!receiver) {
+            res.status(404).json({ success: false, message: `Receiver account '${receiverNo}' not found.` });
+            return;
+        }
+
+        // --- KYC check on sender ---
+        if (!sender.isKYCVerified) {
+            res.status(403).json({
+                success: false,
+                message: "Sender account is not KYC verified. Transfers are not allowed.",
+            });
+            return;
+        }
+
+        // --- Sufficient balance check ---
+        if (sender.balance < amount) {
+            res.status(400).json({
+                success: false,
+                message: `Insufficient balance. Available: ${sender.balance}, Requested: ${amount}.`,
+            });
+            return;
+        }
+
+        // --- Perform transfer ---
+        sender.balance -= amount;
+        receiver.balance += amount;
+        await Promise.all([sender.save(), receiver.save()]);
+
+        res.status(200).json({
+            success: true,
+            message: `Transfer of ${amount} completed successfully.`,
+            data: {
+                sender: {
+                    accountNo: sender.accountNo,
+                    holderName: sender.holderName,
+                    balance: sender.balance,
+                },
+                receiver: {
+                    accountNo: receiver.accountNo,
+                    holderName: receiver.holderName,
+                    balance: receiver.balance,
+                },
+                amount,
+            },
+        });
+    } catch (error) {
+        console.error("transfer error:", error);
         res.status(500).json({ success: false, message: "Internal server error." });
     }
 };
