@@ -7,7 +7,18 @@ const generateAccountNo = (): string => {
     return `ACC-${timestamp}-${random}`;
 };
 
-// ── POST /api/accounts/create ─────────────────────────────────────────────────
+// ── GET /api/accounts ────────────────────────────────────────────────────────
+export const getAllAccounts = async (_req: Request, res: Response): Promise<void> => {
+    try {
+        const accounts = await Account.find().sort({ createdAt: -1 });
+        res.status(200).json({ success: true, count: accounts.length, data: accounts });
+    } catch (error) {
+        console.error("getAllAccounts error:", error);
+        res.status(500).json({ success: false, message: "Internal server error." });
+    }
+};
+
+// ── POST /api/accounts/create ────────────────────────────────────────────────
 export const createAccount = async (req: Request, res: Response): Promise<void> => {
     try {
         const { holderName, isKYCVerified } = req.body;
@@ -40,7 +51,7 @@ export const createAccount = async (req: Request, res: Response): Promise<void> 
     }
 };
 
-// ── POST /api/accounts/deposit ────────────────────────────────────────────────
+// ── POST /api/accounts/deposit ───────────────────────────────────────────────
 export const deposit = async (req: Request, res: Response): Promise<void> => {
     try {
         const { accountNo, amount } = req.body;
@@ -65,7 +76,7 @@ export const deposit = async (req: Request, res: Response): Promise<void> => {
 
         res.status(200).json({
             success: true,
-            message: `Deposited successfully.`,
+            message: "Deposited successfully.",
             data: { accountNo: account.accountNo, holderName: account.holderName, balance: account.balance },
         });
     } catch (error) {
@@ -74,7 +85,7 @@ export const deposit = async (req: Request, res: Response): Promise<void> => {
     }
 };
 
-// ── POST /api/accounts/withdraw ───────────────────────────────────────────────
+// ── POST /api/accounts/withdraw ──────────────────────────────────────────────
 export const withdraw = async (req: Request, res: Response): Promise<void> => {
     try {
         const { accountNo, amount } = req.body;
@@ -106,7 +117,7 @@ export const withdraw = async (req: Request, res: Response): Promise<void> => {
 
         res.status(200).json({
             success: true,
-            message: `Withdrawn successfully.`,
+            message: "Withdrawn successfully.",
             data: { accountNo: account.accountNo, holderName: account.holderName, balance: account.balance },
         });
     } catch (error) {
@@ -115,12 +126,11 @@ export const withdraw = async (req: Request, res: Response): Promise<void> => {
     }
 };
 
-// ── POST /api/accounts/transfer ───────────────────────────────────────────────
+// ── POST /api/accounts/transfer ──────────────────────────────────────────────
 export const transfer = async (req: Request, res: Response): Promise<void> => {
     try {
         const { senderAccount, receiverAccount, amount } = req.body;
 
-        // --- Field presence validation ---
         if (!senderAccount || typeof senderAccount !== "string" || senderAccount.trim() === "") {
             res.status(400).json({ success: false, message: "senderAccount is required." });
             return;
@@ -137,13 +147,11 @@ export const transfer = async (req: Request, res: Response): Promise<void> => {
         const senderNo = senderAccount.trim();
         const receiverNo = receiverAccount.trim();
 
-        // --- Prevent self-transfer ---
         if (senderNo.toLowerCase() === receiverNo.toLowerCase()) {
             res.status(400).json({ success: false, message: "Sender and receiver accounts must be different." });
             return;
         }
 
-        // --- Fetch both accounts ---
         const [sender, receiver] = await Promise.all([
             Account.findOne({ accountNo: senderNo }),
             Account.findOne({ accountNo: receiverNo }),
@@ -157,17 +165,10 @@ export const transfer = async (req: Request, res: Response): Promise<void> => {
             res.status(404).json({ success: false, message: `Receiver account '${receiverNo}' not found.` });
             return;
         }
-
-        // --- KYC check on sender ---
         if (!sender.isKYCVerified) {
-            res.status(403).json({
-                success: false,
-                message: "Sender account is not KYC verified. Transfers are not allowed.",
-            });
+            res.status(403).json({ success: false, message: "Sender account is not KYC verified. Transfers are not allowed." });
             return;
         }
-
-        // --- Sufficient balance check ---
         if (sender.balance < amount) {
             res.status(400).json({
                 success: false,
@@ -176,7 +177,6 @@ export const transfer = async (req: Request, res: Response): Promise<void> => {
             return;
         }
 
-        // --- Perform transfer ---
         sender.balance -= amount;
         receiver.balance += amount;
         await Promise.all([sender.save(), receiver.save()]);
@@ -185,16 +185,8 @@ export const transfer = async (req: Request, res: Response): Promise<void> => {
             success: true,
             message: `Transfer of ${amount} completed successfully.`,
             data: {
-                sender: {
-                    accountNo: sender.accountNo,
-                    holderName: sender.holderName,
-                    balance: sender.balance,
-                },
-                receiver: {
-                    accountNo: receiver.accountNo,
-                    holderName: receiver.holderName,
-                    balance: receiver.balance,
-                },
+                sender: { accountNo: sender.accountNo, holderName: sender.holderName, balance: sender.balance },
+                receiver: { accountNo: receiver.accountNo, holderName: receiver.holderName, balance: receiver.balance },
                 amount,
             },
         });
